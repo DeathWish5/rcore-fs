@@ -32,6 +32,20 @@ impl File {
         Ok(len)
     }
 
+    pub async fn async_read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        assert!(self.readable);
+        let len = self.inode.read_at(self.offset, buf)?;
+        self.offset += len;
+        Ok(len)
+    }
+
+    pub async fn async_write(&mut self, buf: &[u8]) -> Result<usize> {
+        assert!(self.writable);
+        let len = self.inode.write_at(self.offset, buf)?;
+        self.offset += len;
+        Ok(len)
+    }
+
     pub fn info(&self) -> Result<Metadata> {
         self.inode.metadata()
     }

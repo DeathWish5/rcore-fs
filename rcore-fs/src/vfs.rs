@@ -6,6 +6,7 @@ use core::future::Future;
 use core::pin::Pin;
 use core::result;
 use core::str;
+use async_trait::async_trait;
 
 /// Abstract file system object such as file or directory.
 pub trait INode: Any + Sync + Send {
@@ -203,6 +204,217 @@ impl dyn INode {
     }
 }
 
+#[async_trait]
+/// Abstract file system object such as file or directory.
+pub trait AsyncINode: Any + Sync + Send {
+    /// Read bytes at `offset` into `buf`, return the number of bytes read.
+    async fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize>;
+
+    /// Write bytes at `offset` from `buf`, return the number of bytes written.
+    async fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize>;
+
+    // /// Poll the events, return a bitmap of events.
+    // fn poll(&self) -> Result<PollStatus>;
+
+    // /// Poll the events, return a bitmap of events, async version.
+    // fn async_poll<'a>(
+    //     &'a self,
+    // ) -> Pin<Box<dyn Future<Output = Result<PollStatus>> + Send + Sync + 'a>> {
+    //     let f = async move || self.poll();
+    //     Box::pin(f())
+    // }
+
+    /// Get metadata of the INode
+    fn metadata(&self) -> Result<Metadata> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Set metadata of the INode
+    fn set_metadata(&self, _metadata: &Metadata) -> Result<()> {
+        Err(FsError::NotSupported)
+    }
+
+    /// A replacement of Drop. 
+    async fn flush(&self) {
+        self.sync_all().await.expect("Failed to sync when dropping the SimpleFileSystem Inode");
+    }
+
+    /// Sync all data and metadata
+    async fn sync_all(&self) -> Result<()> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Sync data (not include metadata)
+    async fn sync_data(&self) -> Result<()> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Resize the file
+    async fn resize(&self, _len: usize) -> Result<()> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Create a new INode in the directory
+    async fn create(&self, name: &str, type_: FileType, mode: u32) -> Result<Arc<dyn AsyncINode>> {
+        self.create2(name, type_, mode, 0).await
+    }
+
+    /// Create a new INode in the directory, with a data field for usages like device file.
+    async fn create2(
+        &self,
+        name: &str,
+        type_: FileType,
+        mode: u32,
+        _data: usize,
+    ) -> Result<Arc<dyn AsyncINode>> {
+        self.create(name, type_, mode).await
+    }
+
+    /// Create a hard link `name` to `other`
+    async fn link(&self, _name: &str, _other: &Arc<dyn AsyncINode>) -> Result<()> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Delete a hard link `name`
+    async fn unlink(&self, _name: &str) -> Result<()> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Move INode `self/old_name` to `target/new_name`.
+    /// If `target` equals `self`, do rename.
+    async fn move_(&self, _old_name: &str, _target: &Arc<dyn AsyncINode>, _new_name: &str) -> Result<()> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Find the INode `name` in the directory
+    async fn find(&self, _name: &str) -> Result<Arc<dyn AsyncINode>> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Get the name of directory entry
+    async fn get_entry(&self, _id: usize) -> Result<String> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Get the name of directory entry with metadata
+    async fn get_entry_with_metadata(&self, id: usize) -> Result<(Metadata, String)> {
+        // a default and slow implementation
+        let name:String = self.get_entry(id).await?;
+        let entry = self.find(&name).await?;
+        Ok((entry.metadata()?, name))
+    }
+
+
+    /// Control device
+    fn io_control(&self, _cmd: u32, _data: usize) -> Result<usize> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Map files or devices into memory
+    fn mmap(&self, _area: MMapArea) -> Result<()> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Get the file system of the INode
+    fn fs(&self) -> Arc<dyn AsyncFileSystem> {
+        unimplemented!();
+    }
+
+    /// This is used to implement dynamics cast.
+    /// Simply return self in the implement of the function.
+    fn as_any_ref(&self) -> &dyn Any;
+}
+
+impl dyn AsyncINode {
+    /// Downcast the INode to specific struct
+    pub fn downcast_ref<T: AsyncINode>(&self) -> Option<&T> {
+        self.as_any_ref().downcast_ref::<T>()
+    }
+
+    /// Get all directory entries as a Vec
+    pub async fn list(&self) -> Result<Vec<String>> {
+        let info = self.metadata()?;
+        if info.type_ != FileType::Dir {
+            return Err(FsError::NotDir);
+        }
+
+        let mut v = Vec::<String>::new();
+        let mut i = 0;
+        loop {
+            let name = self.get_entry(i).await;
+            if name.is_err() {
+                break
+            }
+            v.push(name.unwrap());
+            i = i + 1;
+        }
+        Ok(v)
+    }
+
+    /// Lookup path from current INode, and do not follow symlinks
+    pub async fn lookup(&self, path: &str) -> Result<Arc<dyn AsyncINode>> {
+        self.lookup_follow(path, 0).await
+    }
+
+    /// Lookup path from current INode, and follow symlinks at most `follow_times` times
+    pub async fn lookup_follow(&self, path: &str, mut follow_times: usize) -> Result<Arc<dyn AsyncINode>> {
+        if self.metadata()?.type_ != FileType::Dir {
+            return Err(FsError::NotDir);
+        }
+
+        let mut result = self.find(".").await?;
+        let mut rest_path = String::from(path);
+        while rest_path != "" {
+            if result.metadata()?.type_ != FileType::Dir {
+                return Err(FsError::NotDir);
+            }
+            // handle absolute path
+            if let Some('/') = rest_path.chars().next() {
+                result = self.fs().root_inode().await;
+                rest_path = String::from(&rest_path[1..]);
+                continue;
+            }
+            let name;
+            match rest_path.find('/') {
+                None => {
+                    name = rest_path;
+                    rest_path = String::new();
+                }
+                Some(pos) => {
+                    name = String::from(&rest_path[0..pos]);
+                    rest_path = String::from(&rest_path[pos + 1..]);
+                }
+            };
+            if name == "" {
+                continue;
+            }
+            let inode = result.find(&name).await?;
+            // Handle symlink
+            if inode.metadata()?.type_ == FileType::SymLink && follow_times > 0 {
+                follow_times -= 1;
+                let mut content = [0u8; 256];
+                let len = inode.read_at(0, &mut content).await?;
+                let path = str::from_utf8(&content[..len]).map_err(|_| FsError::NotDir)?;
+                // result remains unchanged
+                rest_path = {
+                    let mut new_path = String::from(path);
+                    if let Some('/') = new_path.chars().last() {
+                        new_path += &rest_path;
+                    } else {
+                        new_path += "/";
+                        new_path += &rest_path;
+                    }
+                    new_path
+                };
+            } else {
+                result = inode
+            }
+        }
+        Ok(result)
+    }
+}
+
+
 pub enum IOCTLError {
     NotValidFD = 9,      // EBADF
     NotValidMemory = 14, // EFAULT
@@ -360,6 +572,24 @@ pub trait FileSystem: Sync + Send {
 
     /// Get the root INode of the file system
     fn root_inode(&self) -> Arc<dyn INode>;
+
+    /// Get the file system information
+    fn info(&self) -> FsInfo;
+}
+
+/// Abstract file system
+#[async_trait]
+pub trait AsyncFileSystem: Sync + Send {
+    /// Sync all data to the storage
+    async fn sync(&self) -> Result<()>;
+
+    /// Get the root INode of the file system
+    async fn root_inode(&self) -> Arc<dyn AsyncINode>;
+
+    /// A Replacement of Drop, called when you want to drop.
+    async fn flush(&self) {
+        self.sync().await.expect("Failed to sync when dropping the AsyncSimpleFileSystem")
+    }
 
     /// Get the file system information
     fn info(&self) -> FsInfo;
