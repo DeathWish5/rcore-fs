@@ -1,7 +1,6 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 
 extern crate alloc;
-extern crate log;
 
 use alloc::{
     collections::BTreeMap,
@@ -23,8 +22,7 @@ pub mod special;
 /// The file system is readonly from the root INode.
 /// You can add or remove devices through `add()` and `remove()`.
 pub struct DevFS {
-    devs: RwLock<BTreeMap<String, Arc<dyn INode>>>,
-    self_ref: Weak<DevFS>,
+    root: Arc<DevINode>,
 }
 
 #[async_trait]
@@ -34,9 +32,7 @@ impl FileSystem for DevFS {
     }
 
     async fn root_inode(&self) -> Arc<dyn INode> {
-        Arc::new(DevRootINode {
-            fs: self.self_ref.upgrade().unwrap(),
-        })
+        self.root.clone()
     }
 
     fn info(&self) -> FsInfo {
@@ -55,47 +51,92 @@ impl FileSystem for DevFS {
 
 impl DevFS {
     pub fn new() -> Arc<Self> {
-        DevFS {
-            devs: RwLock::new(BTreeMap::new()),
-            self_ref: Weak::default(),
+        let fs = Arc::new(Self {
+            root: DevINode::new(),
+        });
+        *fs.root.fs.write() = Arc::downgrade(&fs);
+        fs
+    }
+
+    pub fn root(&self) -> Arc<DevINode> {
+        self.root.clone()
+    }
+
+    /// Generate a new inode id
+    pub fn new_inode_id() -> usize {
+        use core::sync::atomic::*;
+        static ID: AtomicUsize = AtomicUsize::new(1);
+        ID.fetch_add(1, Ordering::SeqCst)
+    }
+}
+
+pub struct DevINode {
+    this: Weak<DevINode>,
+    parent: Weak<DevINode>,
+    fs: RwLock<Weak<DevFS>>,
+    children: RwLock<BTreeMap<String, Arc<dyn INode>>>,
+    inode_id: usize,
+}
+
+impl DevINode {
+    fn new_with_parent(parent: Weak<DevINode>) -> Arc<Self> {
+        Self {
+            this: Weak::default(),
+            parent,
+            fs: RwLock::new(Weak::default()),
+            children: RwLock::new(BTreeMap::new()),
+            inode_id: DevFS::new_inode_id(),
         }
         .wrap()
     }
-    pub fn add(&self, name: &str, dev: Arc<dyn INode>) -> Result<()> {
-        let mut devs = self.devs.write();
-        if devs.contains_key(name) {
-            return Err(FsError::EntryExist);
-        }
-        devs.insert(String::from(name), dev);
-        Ok(())
+
+    fn new() -> Arc<Self> {
+        Self::new_with_parent(Weak::default())
     }
-    pub fn remove(&self, name: &str) -> Result<()> {
-        let mut devs = self.devs.write();
-        devs.remove(name).ok_or(FsError::EntryNotFound)?;
-        Ok(())
-    }
+
     /// Wrap pure DevFS with Arc
     /// Used in constructors
     fn wrap(self) -> Arc<Self> {
         // Create an Arc, make a Weak from it, then put it into the struct.
         // It's a little tricky.
-        let fs = Arc::new(self);
-        let weak = Arc::downgrade(&fs);
-        let ptr = Arc::into_raw(fs) as *mut Self;
+        let this = Arc::new(self);
+        let weak = Arc::downgrade(&this);
+        let ptr = Arc::into_raw(this) as *mut Self;
         unsafe {
-            (*ptr).self_ref = weak;
+            (*ptr).this = weak;
         }
         unsafe { Arc::from_raw(ptr) }
     }
-}
 
-struct DevRootINode {
-    /// Reference to FS
-    fs: Arc<DevFS>,
+    pub fn add_dir(&self, name: &str) -> Result<Arc<DevINode>> {
+        let mut children = self.children.write();
+        if children.contains_key(name) {
+            return Err(FsError::EntryExist);
+        }
+        let dir = Self::new_with_parent(self.this.clone());
+        *dir.fs.write() = self.fs.read().clone();
+        children.insert(String::from(name), dir.clone());
+        Ok(dir)
+    }
+
+    pub fn add(&self, name: &str, dev: Arc<dyn INode>) -> Result<()> {
+        let mut children = self.children.write();
+        if children.contains_key(name) {
+            return Err(FsError::EntryExist);
+        }
+        children.insert(String::from(name), dev);
+        Ok(())
+    }
+
+    pub fn remove(&self, name: &str) -> Result<()> {
+        let mut children = self.children.write();
+        children.remove(name).ok_or(FsError::EntryNotFound)?;
+        Ok(())
+    }
 }
 
 #[async_trait]
-impl INode for DevRootINode {
+impl INode for DevINode {
     async fn read_at(&self, _offset: usize, _buf: &mut [u8]) -> Result<usize> {
         Err(FsError::IsDir)
     }
@@ -111,15 +152,15 @@ impl INode for DevRootINode {
     fn metadata(&self) -> Result<Metadata> {
         Ok(Metadata {
             dev: 0,
-            inode: 1,
-            size: self.fs.devs.read().len(),
+            inode: self.inode_id,
+            size: self.children.read().len(),
             blk_size: 0,
             blocks: 0,
             atime: Timespec { sec: 0, nsec: 0 },
             mtime: Timespec { sec: 0, nsec: 0 },
             ctime: Timespec { sec: 0, nsec: 0 },
             type_: FileType::Dir,
-            mode: 0o666,
+            mode: 0o755,
             nlinks: 2,
             uid: 0,
             gid: 0,
@@ -161,13 +202,13 @@ impl INode for DevRootINode {
 
     async fn find(&self, name: &str) -> Result<Arc<dyn INode>> {
         match name {
-            "." | ".." => Ok(self.fs.root_inode().await),
+            "." => Ok(self.this.upgrade().ok_or(FsError::EntryNotFound)?),
+            ".." => Ok(self.parent.upgrade().ok_or(FsError::EntryNotFound)?),
             name => self
-                .fs
-                .devs
+                .children
                 .read()
                 .get(name)
-                .map(|d| d.clone())
+                .cloned()
                 .ok_or(FsError::EntryNotFound),
         }
     }
@@ -177,7 +218,7 @@ impl INode for DevRootINode {
             0 => Ok(String::from(".")),
             1 => Ok(String::from("..")),
             i => {
-                if let Some(s) = self.fs.devs.read().keys().nth(i - 2) {
+                if let Some(s) = self.children.read().keys().nth(i - 2) {
                     Ok(s.to_string())
                 } else {
                     Err(FsError::EntryNotFound)
@@ -195,7 +236,7 @@ impl INode for DevRootINode {
     }
 
     fn fs(&self) -> Arc<dyn FileSystem> {
-        self.fs.clone()
+        self.fs.read().upgrade().unwrap()
     }
 
     fn as_any_ref(&self) -> &dyn Any {

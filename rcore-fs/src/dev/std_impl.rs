@@ -17,7 +17,7 @@ impl Device for Mutex<File> {
         unimplemented!();
     }
 
-    fn sync(&self) -> Result<()> {
+    async fn sync(&self) -> Result<()> {
         let file = self.lock().unwrap();
         file.sync_all()?;
         Ok(())

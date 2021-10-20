@@ -1,7 +1,16 @@
 use super::*;
 
-#[derive(Default)]
-pub struct ZeroINode;
+pub struct ZeroINode {
+    inode_id: usize,
+}
+
+impl ZeroINode {
+    pub fn new() -> Self {
+        Self {
+            inode_id: DevFS::new_inode_id(),
+        }
+    }
+}
 
 #[async_trait]
 impl INode for ZeroINode {
@@ -29,7 +38,7 @@ impl INode for ZeroINode {
     fn metadata(&self) -> Result<Metadata> {
         Ok(Metadata {
             dev: 1,
-            inode: 1,
+            inode: self.inode_id,
             size: 0,
             blk_size: 0,
             blocks: 0,
