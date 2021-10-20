@@ -9,6 +9,8 @@ rcore-fs = { path = "../rcore-fs" }
 spin = "0.9"
 log = "0.4"
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
+async-trait = "0.1"
+async-recursion = "0.3"
 
 [dev-dependencies]
 rcore-fs-ramfs = { path = "../rcore-fs-ramfs" }

@@ -24,7 +24,7 @@ use spin::RwLock;
 use rcore_fs::dev::{Device, AsyncDevice};
 use rcore_fs::dirty::Dirty;
 use rcore_fs::util::*;
-use rcore_fs::vfs::{self, FileSystem, AsyncFileSystem, FsError, INode, AsyncINode, MMapArea, Metadata};
+use rcore_fs::vfs::{self, FileSystem, FsError, INode, AsyncINode, MMapArea, Metadata};
 
 use async_trait::async_trait;
 use alloc::boxed::Box;
@@ -2026,7 +2026,7 @@ impl vfs::AsyncFileSystem for AsyncSimpleFileSystem {
             }
             free_map.sync();
         }
-        self.flush_weak_inodes();
+        self.flush_weak_inodes().await;
         for inode in self.inodes.read().values() {
             if let Some(inode) = inode.upgrade() {
                 inode.sync_all().await?;
