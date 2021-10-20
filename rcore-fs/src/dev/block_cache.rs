@@ -9,12 +9,6 @@ pub struct BlockCache<T: BlockDevice> {
     lru: Mutex<LRU>,
 }
 
-pub struct AsyncBlockCache<T: AsyncBlockDevice> {
-    device: T,
-    bufs: Vec<Mutex<Buf>>,
-    lru: Mutex<LRU>,
-}
-
 struct Buf {
     status: BufStatus,
     data: Vec<u8>,
@@ -40,65 +34,6 @@ impl<T: BlockDevice> BlockCache<T> {
         });
         let lru = Mutex::new(LRU::new(capacity));
         BlockCache { device, bufs, lru }
-    }
-
-    /// Get a buffer for `block_id` with any status
-    fn get_buf(&self, block_id: BlockId) -> MutexGuard<Buf> {
-        let (i, buf) = self._get_buf(block_id);
-        self.lru.lock().visit(i);
-        buf
-    }
-
-    fn _get_buf(&self, block_id: BlockId) -> (usize, MutexGuard<Buf>) {
-        for (i, buf) in self.bufs.iter().enumerate() {
-            if let Some(lock) = buf.try_lock() {
-                match lock.status {
-                    BufStatus::Valid(id) if id == block_id => return (i, lock),
-                    BufStatus::Dirty(id) if id == block_id => return (i, lock),
-                    _ => {}
-                }
-            }
-        }
-        self.get_unused()
-    }
-
-    /// Get an unused buffer
-    fn get_unused(&self) -> (usize, MutexGuard<Buf>) {
-        for (i, buf) in self.bufs.iter().enumerate() {
-            if let Some(lock) = buf.try_lock() {
-                if let BufStatus::Unused = lock.status {
-                    return (i, lock);
-                }
-            }
-        }
-        let victim_id = self.lru.lock().victim();
-        let mut victim = self.bufs[victim_id].lock();
-        self.write_back(&mut victim).expect("failed to write back");
-        victim.status = BufStatus::Unused;
-        (victim_id, victim)
-    }
-
-    /// Write back data if buffer is dirty
-    fn write_back(&self, buf: &mut Buf) -> Result<()> {
-        if let BufStatus::Dirty(block_id) = buf.status {
-            self.device.write_at(block_id, &buf.data)?;
-            buf.status = BufStatus::Valid(block_id);
-        }
-        Ok(())
-    }
-}
-
-impl<T: AsyncBlockDevice> AsyncBlockCache<T> {
-    pub fn new(device: T, capacity: usize) -> Self {
-        let mut bufs = Vec::new();
-        bufs.resize_with(capacity, || {
-            Mutex::new(Buf {
-                status: BufStatus::Unused,
-                data: vec![0; 1 << T::BLOCK_SIZE_LOG2 as usize],
-            })
-        });
-        let lru = Mutex::new(LRU::new(capacity));
-        AsyncBlockCache { device, bufs, lru }
     }
 
     /// Get a buffer for `block_id` with any status
@@ -149,55 +84,14 @@ impl<T: AsyncBlockDevice> AsyncBlockCache<T> {
 
 impl<T: BlockDevice> Drop for BlockCache<T> {
     fn drop(&mut self) {
-        BlockDevice::sync(self).expect("failed to sync");
-    }
-}
-
-impl<T: AsyncBlockDevice> Drop for AsyncBlockCache<T> {
-    fn drop(&mut self) {
         // TODO: FIX ME: insert sync manually?
         unimplemented!();
-        // AsyncBlockDevice::sync(self).await.expect("failed to sync");
-    }
-}
-
-impl<T: BlockDevice> BlockDevice for BlockCache<T> {
-    const BLOCK_SIZE_LOG2: u8 = T::BLOCK_SIZE_LOG2;
-
-    fn read_at(&self, block_id: BlockId, buffer: &mut [u8]) -> Result<()> {
-        let mut buf = self.get_buf(block_id);
-        match buf.status {
-            BufStatus::Unused => {
-                // read from device
-                self.device.read_at(block_id, &mut buf.data)?;
-                buf.status = BufStatus::Valid(block_id);
-            }
-            _ => {}
-        }
-        let len = 1 << Self::BLOCK_SIZE_LOG2 as usize;
-        buffer[..len].copy_from_slice(&buf.data);
-        Ok(())
-    }
-
-    fn write_at(&self, block_id: BlockId, buffer: &[u8]) -> Result<()> {
-        let mut buf = self.get_buf(block_id);
-        buf.status = BufStatus::Dirty(block_id);
-        let len = 1 << Self::BLOCK_SIZE_LOG2 as usize;
-        buf.data.copy_from_slice(&buffer[..len]);
-        Ok(())
-    }
-
-    fn sync(&self) -> Result<()> {
-        for buf in self.bufs.iter() {
-            self.write_back(&mut buf.lock())?;
-        }
-        self.device.sync()?;
-        Ok(())
+        // BlockDevice::sync(self).await.expect("failed to sync");
     }
 }
 
 #[async_trait]
-impl<T: AsyncBlockDevice> AsyncBlockDevice for AsyncBlockCache<T> {
+impl<T: BlockDevice> BlockDevice for BlockCache<T> {
     const BLOCK_SIZE_LOG2: u8 = T::BLOCK_SIZE_LOG2;
 
     async fn read_at(&self, block_id: BlockId, buffer: &mut [u8]) -> Result<()> {

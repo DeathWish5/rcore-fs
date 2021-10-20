@@ -7,32 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use super::*;
 
-impl Device for Mutex<File> {
-    fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
-        let offset = offset as u64;
-        let mut file = self.lock().unwrap();
-        file.seek(SeekFrom::Start(offset))?;
-        let len = file.read(buf)?;
-        Ok(len)
-    }
-
-    fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize> {
-        let offset = offset as u64;
-        let mut file = self.lock().unwrap();
-        file.seek(SeekFrom::Start(offset))?;
-        let len = file.write(buf)?;
-        Ok(len)
-    }
-
-    fn sync(&self) -> Result<()> {
-        let file = self.lock().unwrap();
-        file.sync_all()?;
-        Ok(())
-    }
-}
-
 #[async_trait]
-impl AsyncDevice for Mutex<File> {
+impl Device for Mutex<File> {
     async fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
         unimplemented!();
     }

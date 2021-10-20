@@ -12,32 +12,16 @@ pub trait TimeProvider: Send + Sync {
 }
 
 /// Interface for FS to read & write
-pub trait Device: Send + Sync {
-    fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize>;
-    fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize>;
-    fn sync(&self) -> Result<()>;
-}
-
-/// 
 #[async_trait]
-pub trait AsyncDevice: Send + Sync {
+pub trait Device: Send + Sync {
     async fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize>;
     async fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize>;
     async fn sync(&self) -> Result<()>;
 }
 
-
 /// Device which can only R/W in blocks
-pub trait BlockDevice: Send + Sync {
-    const BLOCK_SIZE_LOG2: u8;
-    fn read_at(&self, block_id: BlockId, buf: &mut [u8]) -> Result<()>;
-    fn write_at(&self, block_id: BlockId, buf: &[u8]) -> Result<()>;
-    fn sync(&self) -> Result<()>;
-}
-
-/// 
 #[async_trait]
-pub trait AsyncBlockDevice: Send + Sync {
+pub trait BlockDevice: Send + Sync {
     const BLOCK_SIZE_LOG2: u8;
     async fn read_at(&self, block_id: BlockId, buf: &mut [u8]) -> Result<()>;
     async fn write_at(&self, block_id: BlockId, buf: &[u8]) -> Result<()>;
@@ -62,71 +46,8 @@ macro_rules! try0 {
 }
 
 /// Helper functions to R/W BlockDevice in bytes
-impl<T: BlockDevice> Device for T {
-    fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
-        let iter = BlockIter {
-            begin: offset,
-            end: offset + buf.len(),
-            block_size_log2: Self::BLOCK_SIZE_LOG2,
-        };
-
-        // For each block
-        for range in iter {
-            let len = range.origin_begin() - offset;
-            let buf = &mut buf[range.origin_begin() - offset..range.origin_end() - offset];
-            if range.is_full() {
-                // Read to target buf directly
-                try0!(len, BlockDevice::read_at(self, range.block, buf));
-            } else {
-                use core::mem::MaybeUninit;
-                let mut block_buf: [u8; 1 << 10] = unsafe { MaybeUninit::uninit().assume_init() };
-                assert!(Self::BLOCK_SIZE_LOG2 <= 10);
-                // Read to local buf first
-                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf));
-                // Copy to target buf then
-                buf.copy_from_slice(&mut block_buf[range.begin..range.end]);
-            }
-        }
-        Ok(buf.len())
-    }
-
-    fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize> {
-        let iter = BlockIter {
-            begin: offset,
-            end: offset + buf.len(),
-            block_size_log2: Self::BLOCK_SIZE_LOG2,
-        };
-
-        // For each block
-        for range in iter {
-            let len = range.origin_begin() - offset;
-            let buf = &buf[range.origin_begin() - offset..range.origin_end() - offset];
-            if range.is_full() {
-                // Write to target buf directly
-                try0!(len, BlockDevice::write_at(self, range.block, buf));
-            } else {
-                use core::mem::MaybeUninit;
-                let mut block_buf: [u8; 1 << 10] = unsafe { MaybeUninit::uninit().assume_init() };
-                assert!(Self::BLOCK_SIZE_LOG2 <= 10);
-                // Read to local buf first
-                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf));
-                // Write to local buf
-                block_buf[range.begin..range.end].copy_from_slice(buf);
-                // Write back to target buf
-                try0!(len, BlockDevice::write_at(self, range.block, &block_buf));
-            }
-        }
-        Ok(buf.len())
-    }
-
-    fn sync(&self) -> Result<()> {
-        BlockDevice::sync(self)
-    }
-}
-
-/// Helper functions to R/W BlockDevice in bytes
 #[async_trait]
-impl<T: AsyncBlockDevice> AsyncDevice for T {
+impl<T: BlockDevice> Device for T {
 
     async fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
         let iter = BlockIter {
@@ -141,13 +62,13 @@ impl<T: AsyncBlockDevice> AsyncDevice for T {
             let buf = &mut buf[range.origin_begin() - offset..range.origin_end() - offset];
             if range.is_full() {
                 // Read to target buf directly
-                try0!(len, AsyncBlockDevice::read_at(self, range.block, buf).await);
+                try0!(len, BlockDevice::read_at(self, range.block, buf).await);
             } else {
                 use core::mem::MaybeUninit;
                 let mut block_buf: [u8; 1 << 10] = unsafe { MaybeUninit::uninit().assume_init() };
                 assert!(Self::BLOCK_SIZE_LOG2 <= 10);
                 // Read to local buf first
-                try0!(len, AsyncBlockDevice::read_at(self, range.block, &mut block_buf).await);
+                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf).await);
                 // Copy to target buf then
                 buf.copy_from_slice(&mut block_buf[range.begin..range.end]);
             }
@@ -168,26 +89,28 @@ impl<T: AsyncBlockDevice> AsyncDevice for T {
             let buf = &buf[range.origin_begin() - offset..range.origin_end() - offset];
             if range.is_full() {
                 // Write to target buf directly
-                try0!(len, AsyncBlockDevice::write_at(self, range.block, buf).await);
+                try0!(len, BlockDevice::write_at(self, range.block, buf).await);
             } else {
                 use core::mem::MaybeUninit;
                 let mut block_buf: [u8; 1 << 10] = unsafe { MaybeUninit::uninit().assume_init() };
                 assert!(Self::BLOCK_SIZE_LOG2 <= 10);
                 // Read to local buf first
-                try0!(len, AsyncBlockDevice::read_at(self, range.block, &mut block_buf).await);
+                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf).await);
                 // Write to local buf
                 block_buf[range.begin..range.end].copy_from_slice(buf);
                 // Write back to target buf
-                try0!(len, AsyncBlockDevice::write_at(self, range.block, &block_buf).await);
+                try0!(len, BlockDevice::write_at(self, range.block, &block_buf).await);
             }
         }
         Ok(buf.len())
     }
 
     async fn sync(&self) -> Result<()> {
-        AsyncBlockDevice::sync(self).await
+        BlockDevice::sync(self).await
     }
 }
+
+// TODO: test
 
 #[cfg(test)]
 mod test {

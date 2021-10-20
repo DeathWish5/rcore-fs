@@ -18,30 +18,16 @@ impl File {
         }
     }
 
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         assert!(self.readable);
-        let len = self.inode.read_at(self.offset, buf)?;
+        let len = self.inode.read_at(self.offset, buf).await?;
         self.offset += len;
         Ok(len)
     }
 
-    pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
         assert!(self.writable);
-        let len = self.inode.write_at(self.offset, buf)?;
-        self.offset += len;
-        Ok(len)
-    }
-
-    pub async fn async_read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        assert!(self.readable);
-        let len = self.inode.read_at(self.offset, buf)?;
-        self.offset += len;
-        Ok(len)
-    }
-
-    pub async fn async_write(&mut self, buf: &[u8]) -> Result<usize> {
-        assert!(self.writable);
-        let len = self.inode.write_at(self.offset, buf)?;
+        let len = self.inode.write_at(self.offset, buf).await?;
         self.offset += len;
         Ok(len)
     }
@@ -50,7 +36,7 @@ impl File {
         self.inode.metadata()
     }
 
-    pub fn get_entry(&self, id: usize) -> Result<String> {
-        self.inode.get_entry(id)
+    pub async fn get_entry(&self, id: usize) -> Result<String> {
+        self.inode.get_entry(id).await
     }
 }
