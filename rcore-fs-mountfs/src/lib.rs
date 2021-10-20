@@ -10,16 +10,11 @@ use alloc::{
     string::String,
     sync::{Arc, Weak},
 };
-<<<<<<< HEAD
 use async_trait::async_trait;
 use async_recursion::async_recursion;
 use core::any::Any;
-=======
-use core::{any::Any, future::Future, pin::Pin};
->>>>>>> master
 use rcore_fs::vfs::*;
 use spin::RwLock;
-use alloc::boxed::Box;
 
 
 #[cfg(test)]
@@ -76,11 +71,7 @@ impl MountFS {
     }
 
     /// Strong type version of `root_inode`
-<<<<<<< HEAD
-    pub async fn root_inode(&self) -> Arc<MNode> {
-=======
-    pub fn mountpoint_root_inode(&self) -> Arc<MNode> {
->>>>>>> master
+    pub async fn mountpoint_root_inode(&self) -> Arc<MNode> {
         MNode {
             inode: self.inner.root_inode().await,
             vfs: self.self_ref.upgrade().unwrap(),
@@ -130,24 +121,15 @@ impl MNode {
     async fn overlaid_inode(&self) -> Arc<MNode> {
         let inode_id = self.metadata().unwrap().inode;
         if let Some(sub_vfs) = self.vfs.mountpoints.read().get(&inode_id) {
-<<<<<<< HEAD
-            sub_vfs.root_inode().await
-=======
-            sub_vfs.mountpoint_root_inode()
->>>>>>> master
+            sub_vfs.mountpoint_root_inode().await
         } else {
             self.self_ref.upgrade().unwrap()
         }
     }
 
     /// Is the root INode of its FS?
-<<<<<<< HEAD
-    async fn is_root(&self) -> bool {
+    async fn is_mountpoint_root(&self) -> bool {
         self.inode.fs().root_inode().await.metadata().unwrap().inode
-=======
-    fn is_mountpoint_root(&self) -> bool {
-        self.inode.fs().root_inode().metadata().unwrap().inode
->>>>>>> master
             == self.inode.metadata().unwrap().inode
     }
 
@@ -175,11 +157,7 @@ impl MNode {
                 // TODO: check going up.
                 if root {
                     Ok(self.self_ref.upgrade().unwrap())
-<<<<<<< HEAD
-                } else if self.is_root().await {
-=======
-                } else if self.is_mountpoint_root() {
->>>>>>> master
+                } else if self.is_mountpoint_root().await {
                     // Here is mountpoint.
                     match &self.vfs.self_mountpoint {
                         Some(inode) => inode.find(root, "..").await,
@@ -242,16 +220,11 @@ impl FileSystem for MountFS {
         Ok(())
     }
 
-<<<<<<< HEAD
     async fn root_inode(&self) -> Arc<dyn INode> {
-        self.root_inode().await
-=======
-    fn root_inode(&self) -> Arc<dyn INode> {
         match &self.self_mountpoint {
-            Some(inode) => inode.vfs.root_inode(),
-            None => self.mountpoint_root_inode(),
+            Some(inode) => inode.vfs.root_inode().await,
+            None => self.mountpoint_root_inode().await,
         }
->>>>>>> master
     }
 
     fn info(&self) -> FsInfo {
@@ -275,11 +248,11 @@ impl INode for MNode {
     // }
 
     /// Poll the events, return a bitmap of events, async version.
-    fn async_poll<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<PollStatus>> + Send + Sync + 'a>> {
-        self.inode.async_poll()
-    }
+    // fn async_poll<'a>(
+    //     &'a self,
+    // ) -> Pin<Box<dyn Future<Output = Result<PollStatus>> + Send + Sync + 'a>> {
+    //     self.inode.async_poll()
+    // }
 
     fn metadata(&self) -> Result<Metadata> {
         self.inode.metadata()
@@ -305,17 +278,8 @@ impl INode for MNode {
         Ok(self.create(name, type_, mode).await?)
     }
 
-<<<<<<< HEAD
     async fn link(&self, name: &str, other: &Arc<dyn INode>) -> Result<()> {
-        let other = &other
-            .downcast_ref::<Self>()
-            .ok_or(FsError::NotSameFs)?
-            .inode;
         self.inode.link(name, other).await
-=======
-    fn link(&self, name: &str, other: &Arc<dyn INode>) -> Result<()> {
-        self.inode.link(name, other)
->>>>>>> master
     }
 
     async fn unlink(&self, name: &str) -> Result<()> {
@@ -327,17 +291,8 @@ impl INode for MNode {
         self.inode.unlink(name).await
     }
 
-<<<<<<< HEAD
     async fn move_(&self, old_name: &str, target: &Arc<dyn INode>, new_name: &str) -> Result<()> {
-        let target = &target
-            .downcast_ref::<Self>()
-            .ok_or(FsError::NotSameFs)?
-            .inode;
         self.inode.move_(old_name, target, new_name).await
-=======
-    fn move_(&self, old_name: &str, target: &Arc<dyn INode>, new_name: &str) -> Result<()> {
-        self.inode.move_(old_name, target, new_name)
->>>>>>> master
     }
 
     async fn find(&self, name: &str) -> Result<Arc<dyn INode>> {
