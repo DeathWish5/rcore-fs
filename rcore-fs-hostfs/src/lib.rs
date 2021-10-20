@@ -8,6 +8,8 @@ use std::string::String;
 use std::sync::{Arc, Weak};
 use std::sync::{Mutex, MutexGuard};
 
+use async_trait::async_trait;
+
 #[macro_use]
 extern crate log;
 
@@ -24,13 +26,14 @@ pub struct HNode {
     fs: Arc<HostFS>,
 }
 
+#[async_trait]
 impl FileSystem for HostFS {
-    fn sync(&self) -> Result<()> {
+    async fn sync(&self) -> Result<()> {
         warn!("HostFS: sync is unimplemented");
         Ok(())
     }
 
-    fn root_inode(&self) -> Arc<dyn INode> {
+    async fn root_inode(&self) -> Arc<dyn INode> {
         Arc::new(HNode {
             path: self.path.clone(),
             file: Mutex::new(None),
@@ -65,8 +68,9 @@ impl HostFS {
     }
 }
 
+#[async_trait]
 impl INode for HNode {
-    fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
+    async fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
         let mut guard = self.open_file()?;
         let file = guard.as_mut().unwrap();
         file.seek(SeekFrom::Start(offset as u64))?;
@@ -74,7 +78,7 @@ impl INode for HNode {
         Ok(len)
     }
 
-    fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize> {
+    async fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize> {
         let mut guard = self.open_file()?;
         let file = guard.as_mut().unwrap();
         file.seek(SeekFrom::Start(offset as u64))?;
@@ -82,9 +86,9 @@ impl INode for HNode {
         Ok(len)
     }
 
-    fn poll(&self) -> Result<PollStatus> {
-        unimplemented!()
-    }
+    // fn poll(&self) -> Result<PollStatus> {
+    //     unimplemented!()
+    // }
 
     fn metadata(&self) -> Result<Metadata> {
         let metadata = self.path.metadata()?;
@@ -96,28 +100,28 @@ impl INode for HNode {
         Ok(())
     }
 
-    fn sync_all(&self) -> Result<()> {
+    async fn sync_all(&self) -> Result<()> {
         let mut guard = self.open_file()?;
         let file = guard.as_mut().unwrap();
         file.sync_all()?;
         Ok(())
     }
 
-    fn sync_data(&self) -> Result<()> {
+    async fn sync_data(&self) -> Result<()> {
         let mut guard = self.open_file()?;
         let file = guard.as_mut().unwrap();
         file.sync_data()?;
         Ok(())
     }
 
-    fn resize(&self, len: usize) -> Result<()> {
+    async fn resize(&self, len: usize) -> Result<()> {
         let mut guard = self.open_file()?;
         let file = guard.as_mut().unwrap();
         file.set_len(len as u64)?;
         Ok(())
     }
 
-    fn create(&self, name: &str, type_: FileType, _mode: u32) -> Result<Arc<dyn INode>> {
+    async fn create(&self, name: &str, type_: FileType, _mode: u32) -> Result<Arc<dyn INode>> {
         let new_path = self.path.join(name);
         if new_path.exists() {
             return Err(FsError::EntryExist);
@@ -138,13 +142,13 @@ impl INode for HNode {
         }))
     }
 
-    fn link(&self, name: &str, other: &Arc<dyn INode>) -> Result<()> {
+    async fn link(&self, name: &str, other: &Arc<dyn INode>) -> Result<()> {
         let other = other.downcast_ref::<Self>().ok_or(FsError::NotSameFs)?;
         std::fs::hard_link(&other.path, &self.path.join(name))?;
         Ok(())
     }
 
-    fn unlink(&self, name: &str) -> Result<()> {
+    async fn unlink(&self, name: &str) -> Result<()> {
         let new_path = self.path.join(name);
         if new_path.is_file() {
             std::fs::remove_file(new_path)?;
@@ -156,7 +160,7 @@ impl INode for HNode {
         Ok(())
     }
 
-    fn move_(&self, old_name: &str, target: &Arc<dyn INode>, new_name: &str) -> Result<()> {
+    async fn move_(&self, old_name: &str, target: &Arc<dyn INode>, new_name: &str) -> Result<()> {
         let target = target.downcast_ref::<Self>().ok_or(FsError::NotSameFs)?;
         let old_path = self.path.join(old_name);
         let new_path = target.path.join(new_name);
@@ -164,7 +168,7 @@ impl INode for HNode {
         Ok(())
     }
 
-    fn find(&self, name: &str) -> Result<Arc<dyn INode>> {
+    async fn find(&self, name: &str) -> Result<Arc<dyn INode>> {
         let new_path = self.path.join(name);
         if !new_path.exists() {
             return Err(FsError::EntryNotFound);
@@ -176,7 +180,7 @@ impl INode for HNode {
         }))
     }
 
-    fn get_entry(&self, id: usize) -> Result<String> {
+    async fn get_entry(&self, id: usize) -> Result<String> {
         if !self.path.is_dir() {
             return Err(FsError::NotDir);
         }

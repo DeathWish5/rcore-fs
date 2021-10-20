@@ -1,7 +1,7 @@
 #![cfg(any(test, feature = "std"))]
 
 use std::fs::File;
-use std::io::{Error, Read, Seek, SeekFrom, Write};
+use std::io::Error;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
@@ -9,11 +9,11 @@ use super::*;
 
 #[async_trait]
 impl Device for Mutex<File> {
-    async fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
+    async fn read_at(&self, _offset: usize, _buf: &mut [u8]) -> Result<usize> {
         unimplemented!();
     }
 
-    async fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize> {
+    async fn write_at(&self, _offset: usize, _buf: &[u8]) -> Result<usize> {
         unimplemented!();
     }
 

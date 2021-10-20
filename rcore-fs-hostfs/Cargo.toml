@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 rcore-fs = { path = "../rcore-fs", features = ["std"] }
 log = "0.4"
+async-trait = "0.1"
