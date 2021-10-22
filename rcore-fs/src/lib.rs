@@ -3,6 +3,8 @@
 
 extern crate alloc;
 
+extern crate log;
+
 pub mod dev;
 pub mod dirty;
 pub mod file;

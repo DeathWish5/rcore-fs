@@ -6,6 +6,8 @@ pub mod std_impl;
 use async_trait::async_trait;
 use alloc::boxed::Box;
 
+use log::*;
+
 /// A current time provider
 pub trait TimeProvider: Send + Sync {
     fn current_time(&self) -> Timespec;
@@ -40,6 +42,7 @@ pub type BlockId = usize;
 macro_rules! try0 {
     ($len:expr, $res:expr) => {
         if $res.is_err() {
+            error!("BlockDevice Error {:?}", $res);
             return Ok($len);
         }
     };
@@ -67,8 +70,9 @@ impl<T: BlockDevice> Device for T {
                 use core::mem::MaybeUninit;
                 let mut block_buf: [u8; 1 << 10] = unsafe { MaybeUninit::uninit().assume_init() };
                 assert!(Self::BLOCK_SIZE_LOG2 <= 10);
+                let buf_len = 1 << Self::BLOCK_SIZE_LOG2;
                 // Read to local buf first
-                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf).await);
+                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf[..buf_len]).await);
                 // Copy to target buf then
                 buf.copy_from_slice(&mut block_buf[range.begin..range.end]);
             }

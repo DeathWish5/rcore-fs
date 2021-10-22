@@ -39,22 +39,29 @@ mod tests;
 trait DeviceExt: Device {
     async fn read_block(&self, id: BlockId, offset: usize, buf: &mut [u8]) -> vfs::Result<()> {
         debug_assert!(offset + buf.len() <= BLKSIZE);
+        info!("id {} offset {} buf.len {}", id, offset, buf.len());
         match self.read_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
-            _ => panic!("cannot read block {} offset {} from device", id, offset),
+            Ok(len) => panic!("read invalid len {}, expected len {} block {} offset {}", 
+                len, buf.len(), id, offset),
+            Err(e) => panic!("read device error {:?} block {} offset {}", e, id, offset),
         }
     }
     async fn write_block(&self, id: BlockId, offset: usize, buf: &[u8]) -> vfs::Result<()> {
         debug_assert!(offset + buf.len() <= BLKSIZE);
         match self.write_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
-            _ => panic!("cannot write block {} offset {} to device", id, offset),
+            Ok(len) => panic!("write invalid len {}, expected len {}, block {} offset {}", 
+                len, buf.len(), id, offset),
+            Err(e) => panic!("write device error {:?} block {} offset {}", e, id, offset),
         }
     }
     /// Load struct `T` from given block in device
     async fn load_struct<T: AsBuf + Send>(&self, id: BlockId) -> vfs::Result<T> {
         let mut s: T = unsafe { MaybeUninit::uninit().assume_init() };
+        info!("start load struct");
         self.read_block(id, 0, s.as_buf_mut()).await?;
+        info!("end load struct");
         Ok(s)
     }
 }
@@ -854,7 +861,9 @@ pub struct SimpleFileSystem {
 impl SimpleFileSystem {
     /// Load SFS from device
     pub async fn open(device: Arc<dyn Device>) -> vfs::Result<Arc<Self>> {
+        info!("load super block..");
         let super_block = device.load_struct::<SuperBlock>(BLKN_SUPER).await?;
+        info!("load super block over");
         if !super_block.check() {
             return Err(FsError::WrongFs);
         }
