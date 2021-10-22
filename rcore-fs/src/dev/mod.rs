@@ -98,12 +98,13 @@ impl<T: BlockDevice> Device for T {
                 use core::mem::MaybeUninit;
                 let mut block_buf: [u8; 1 << 10] = unsafe { MaybeUninit::uninit().assume_init() };
                 assert!(Self::BLOCK_SIZE_LOG2 <= 10);
+                let buf_len = 1 << Self::BLOCK_SIZE_LOG2;
                 // Read to local buf first
-                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf).await);
+                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf[..buf_len]).await);
                 // Write to local buf
                 block_buf[range.begin..range.end].copy_from_slice(buf);
                 // Write back to target buf
-                try0!(len, BlockDevice::write_at(self, range.block, &block_buf).await);
+                try0!(len, BlockDevice::write_at(self, range.block, &block_buf[..buf_len]).await);
             }
         }
         Ok(buf.len())

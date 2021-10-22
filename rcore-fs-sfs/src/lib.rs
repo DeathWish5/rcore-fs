@@ -39,7 +39,7 @@ mod tests;
 trait DeviceExt: Device {
     async fn read_block(&self, id: BlockId, offset: usize, buf: &mut [u8]) -> vfs::Result<()> {
         debug_assert!(offset + buf.len() <= BLKSIZE);
-        info!("id {} offset {} buf.len {}", id, offset, buf.len());
+        // info!("read id {} offset {} buf.len {}", id, offset, buf.len());
         match self.read_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
             Ok(len) => panic!("read invalid len {}, expected len {} block {} offset {}", 
@@ -49,6 +49,7 @@ trait DeviceExt: Device {
     }
     async fn write_block(&self, id: BlockId, offset: usize, buf: &[u8]) -> vfs::Result<()> {
         debug_assert!(offset + buf.len() <= BLKSIZE);
+        // info!("write id {} offset {} buf.len {}", id, offset, buf.len());
         match self.write_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
             Ok(len) => panic!("write invalid len {}, expected len {}, block {} offset {}", 
@@ -59,9 +60,7 @@ trait DeviceExt: Device {
     /// Load struct `T` from given block in device
     async fn load_struct<T: AsBuf + Send>(&self, id: BlockId) -> vfs::Result<T> {
         let mut s: T = unsafe { MaybeUninit::uninit().assume_init() };
-        info!("start load struct");
         self.read_block(id, 0, s.as_buf_mut()).await?;
-        info!("end load struct");
         Ok(s)
     }
 }
@@ -875,7 +874,7 @@ impl SimpleFileSystem {
                 &mut freemap_disk[i * BLKSIZE..(i + 1) * BLKSIZE],
             ).await?;
         }
-
+        info!("read block over, range {:?}", 0..super_block.freemap_blocks);
         Ok(SimpleFileSystem {
             super_block: RwLock::new(Dirty::new(super_block)),
             free_map: RwLock::new(Dirty::new(BitVec::from_vec(freemap_disk))),
