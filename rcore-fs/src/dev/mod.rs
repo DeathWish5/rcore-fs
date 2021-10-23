@@ -3,8 +3,8 @@ use crate::vfs::Timespec;
 
 pub mod block_cache;
 pub mod std_impl;
-use async_trait::async_trait;
 use alloc::boxed::Box;
+use async_trait::async_trait;
 
 use log::*;
 
@@ -51,7 +51,6 @@ macro_rules! try0 {
 /// Helper functions to R/W BlockDevice in bytes
 #[async_trait]
 impl<T: BlockDevice> Device for T {
-
     async fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
         let iter = BlockIter {
             begin: offset,
@@ -72,7 +71,10 @@ impl<T: BlockDevice> Device for T {
                 assert!(Self::BLOCK_SIZE_LOG2 <= 10);
                 let buf_len = 1 << Self::BLOCK_SIZE_LOG2;
                 // Read to local buf first
-                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf[..buf_len]).await);
+                try0!(
+                    len,
+                    BlockDevice::read_at(self, range.block, &mut block_buf[..buf_len]).await
+                );
                 // Copy to target buf then
                 buf.copy_from_slice(&mut block_buf[range.begin..range.end]);
             }
@@ -100,11 +102,17 @@ impl<T: BlockDevice> Device for T {
                 assert!(Self::BLOCK_SIZE_LOG2 <= 10);
                 let buf_len = 1 << Self::BLOCK_SIZE_LOG2;
                 // Read to local buf first
-                try0!(len, BlockDevice::read_at(self, range.block, &mut block_buf[..buf_len]).await);
+                try0!(
+                    len,
+                    BlockDevice::read_at(self, range.block, &mut block_buf[..buf_len]).await
+                );
                 // Write to local buf
                 block_buf[range.begin..range.end].copy_from_slice(buf);
                 // Write back to target buf
-                try0!(len, BlockDevice::write_at(self, range.block, &block_buf[..buf_len]).await);
+                try0!(
+                    len,
+                    BlockDevice::write_at(self, range.block, &block_buf[..buf_len]).await
+                );
             }
         }
         Ok(buf.len())

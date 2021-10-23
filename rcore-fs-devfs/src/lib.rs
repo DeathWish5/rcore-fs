@@ -3,15 +3,15 @@
 extern crate alloc;
 
 use alloc::{
+    boxed::Box,
     collections::BTreeMap,
     string::{String, ToString},
     sync::{Arc, Weak},
-    boxed::Box,
 };
+use async_trait::async_trait;
 use core::any::Any;
 use rcore_fs::vfs::*;
 use spin::RwLock;
-use async_trait::async_trait;
 pub mod special;
 
 /// Device file system
@@ -145,9 +145,9 @@ impl INode for DevINode {
         Err(FsError::IsDir)
     }
 
-    // fn poll(&self) -> Result<PollStatus> {
-    //     Err(FsError::IsDir)
-    // }
+    fn poll(&self) -> Result<PollStatus> {
+        Err(FsError::IsDir)
+    }
 
     fn metadata(&self) -> Result<Metadata> {
         Ok(Metadata {
@@ -196,7 +196,12 @@ impl INode for DevINode {
         Err(FsError::NotSupported)
     }
 
-    async fn move_(&self, _old_name: &str, _target: &Arc<dyn INode>, _new_name: &str) -> Result<()> {
+    async fn move_(
+        &self,
+        _old_name: &str,
+        _target: &Arc<dyn INode>,
+        _new_name: &str,
+    ) -> Result<()> {
         Err(FsError::NotSupported)
     }
 

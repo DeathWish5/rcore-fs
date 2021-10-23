@@ -1,11 +1,15 @@
 use crate::dev::DevError;
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use async_recursion::async_recursion;
+use async_trait::async_trait;
 use core::any::Any;
 use core::fmt;
 use core::result;
 use core::str;
-use async_trait::async_trait;
-use async_recursion::async_recursion;
+use core::{
+    future::Future,
+    pin::Pin,
+};
 
 #[async_trait]
 /// Abstract file system object such as file or directory.
@@ -16,16 +20,16 @@ pub trait INode: Any + Sync + Send {
     /// Write bytes at `offset` from `buf`, return the number of bytes written.
     async fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize>;
 
-    // /// Poll the events, return a bitmap of events.
-    // fn poll(&self) -> Result<PollStatus>;
+    /// Poll the events, return a bitmap of events.
+    fn poll(&self) -> Result<PollStatus>;
 
-    // /// Poll the events, return a bitmap of events, async version.
-    // fn async_poll<'a>(
-    //     &'a self,
-    // ) -> Pin<Box<dyn Future<Output = Result<PollStatus>> + Send + Sync + 'a>> {
-    //     let f = async move || self.poll();
-    //     Box::pin(f())
-    // }
+    /// Poll the events, return a bitmap of events, async version.
+    fn async_poll<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<PollStatus>> + Send + Sync + 'a>> {
+        let f = async move || self.poll();
+        Box::pin(f())
+    }
 
     /// Get metadata of the INode
     fn metadata(&self) -> Result<Metadata> {
@@ -37,9 +41,11 @@ pub trait INode: Any + Sync + Send {
         Err(FsError::NotSupported)
     }
 
-    /// A replacement of Drop. 
+    /// A replacement of Drop.
     async fn flush(&self) {
-        self.sync_all().await.expect("Failed to sync when dropping the SimpleFileSystem Inode");
+        self.sync_all()
+            .await
+            .expect("Failed to sync when dropping the SimpleFileSystem Inode");
     }
 
     /// Sync all data and metadata
@@ -85,7 +91,12 @@ pub trait INode: Any + Sync + Send {
 
     /// Move INode `self/old_name` to `target/new_name`.
     /// If `target` equals `self`, do rename.
-    async fn move_(&self, _old_name: &str, _target: &Arc<dyn INode>, _new_name: &str) -> Result<()> {
+    async fn move_(
+        &self,
+        _old_name: &str,
+        _target: &Arc<dyn INode>,
+        _new_name: &str,
+    ) -> Result<()> {
         Err(FsError::NotSupported)
     }
 
@@ -102,11 +113,10 @@ pub trait INode: Any + Sync + Send {
     /// Get the name of directory entry with metadata
     async fn get_entry_with_metadata(&self, id: usize) -> Result<(Metadata, String)> {
         // a default and slow implementation
-        let name:String = self.get_entry(id).await?;
+        let name: String = self.get_entry(id).await?;
         let entry = self.find(&name).await?;
         Ok((entry.metadata()?, name))
     }
-
 
     /// Control device
     fn io_control(&self, _cmd: u32, _data: usize) -> Result<usize> {
@@ -146,7 +156,7 @@ impl dyn INode {
         loop {
             let name = self.get_entry(i).await;
             if name.is_err() {
-                break
+                break;
             }
             v.push(name.unwrap());
             i = i + 1;
@@ -208,7 +218,6 @@ impl dyn INode {
         Ok(result)
     }
 }
-
 
 pub enum IOCTLError {
     NotValidFD = 9,      // EBADF
@@ -371,7 +380,9 @@ pub trait FileSystem: Sync + Send {
 
     /// A Replacement of Drop, called when you want to drop.
     async fn flush(&self) {
-        self.sync().await.expect("Failed to sync when dropping the SimpleFileSystem")
+        self.sync()
+            .await
+            .expect("Failed to sync when dropping the SimpleFileSystem")
     }
 
     /// Get the file system information

@@ -26,8 +26,8 @@ use rcore_fs::dirty::Dirty;
 use rcore_fs::util::*;
 use rcore_fs::vfs::{self, FsError, INode, MMapArea, Metadata};
 
-use async_trait::async_trait;
 use alloc::boxed::Box;
+use async_trait::async_trait;
 
 pub use self::structs::*;
 
@@ -42,8 +42,13 @@ trait DeviceExt: Device {
         // info!("read id {} offset {} buf.len {}", id, offset, buf.len());
         match self.read_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
-            Ok(len) => panic!("read invalid len {}, expected len {} block {} offset {}", 
-                len, buf.len(), id, offset),
+            Ok(len) => panic!(
+                "read invalid len {}, expected len {} block {} offset {}",
+                len,
+                buf.len(),
+                id,
+                offset
+            ),
             Err(e) => panic!("read device error {:?} block {} offset {}", e, id, offset),
         }
     }
@@ -52,8 +57,13 @@ trait DeviceExt: Device {
         // info!("write id {} offset {} buf.len {}", id, offset, buf.len());
         match self.write_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
-            Ok(len) => panic!("write invalid len {}, expected len {}, block {} offset {}", 
-                len, buf.len(), id, offset),
+            Ok(len) => panic!(
+                "write invalid len {}, expected len {}, block {} offset {}",
+                len,
+                buf.len(),
+                id,
+                offset
+            ),
             Err(e) => panic!("write device error {:?} block {} offset {}", e, id, offset),
         }
     }
@@ -99,36 +109,49 @@ impl INodeImpl {
             id if id < MAX_NBLOCK_DIRECT => Ok(disk_inode.direct[id] as BlockId),
             id if id < MAX_NBLOCK_INDIRECT => {
                 let mut disk_block_id: u32 = 0;
-                self.fs.device.read_block(
-                    disk_inode.indirect as usize,
-                    ENTRY_SIZE * (id - NDIRECT),
-                    disk_block_id.as_buf_mut(),
-                ).await?;
+                self.fs
+                    .device
+                    .read_block(
+                        disk_inode.indirect as usize,
+                        ENTRY_SIZE * (id - NDIRECT),
+                        disk_block_id.as_buf_mut(),
+                    )
+                    .await?;
                 Ok(disk_block_id as BlockId)
             }
             id if id < MAX_NBLOCK_DOUBLE_INDIRECT => {
                 // double indirect
                 let indirect_id = id - MAX_NBLOCK_INDIRECT;
                 let mut indirect_block_id: u32 = 0;
-                self.fs.device.read_block(
-                    disk_inode.db_indirect as usize,
-                    ENTRY_SIZE * (indirect_id / BLK_NENTRY),
-                    indirect_block_id.as_buf_mut(),
-                ).await?;
+                self.fs
+                    .device
+                    .read_block(
+                        disk_inode.db_indirect as usize,
+                        ENTRY_SIZE * (indirect_id / BLK_NENTRY),
+                        indirect_block_id.as_buf_mut(),
+                    )
+                    .await?;
                 assert!(indirect_block_id > 0);
                 let mut disk_block_id: u32 = 0;
-                self.fs.device.read_block(
-                    indirect_block_id as usize,
-                    ENTRY_SIZE * (indirect_id as usize % BLK_NENTRY),
-                    disk_block_id.as_buf_mut(),
-                ).await?;
+                self.fs
+                    .device
+                    .read_block(
+                        indirect_block_id as usize,
+                        ENTRY_SIZE * (indirect_id as usize % BLK_NENTRY),
+                        disk_block_id.as_buf_mut(),
+                    )
+                    .await?;
                 assert!(disk_block_id > 0);
                 Ok(disk_block_id as BlockId)
             }
             _ => unimplemented!("triple indirect blocks is not supported"),
         }
     }
-    async fn set_disk_block_id(&self, file_block_id: BlockId, disk_block_id: BlockId) -> vfs::Result<()> {
+    async fn set_disk_block_id(
+        &self,
+        file_block_id: BlockId,
+        disk_block_id: BlockId,
+    ) -> vfs::Result<()> {
         match file_block_id {
             id if id >= self.disk_inode.read().blocks as BlockId => Err(FsError::InvalidParam),
             id if id < MAX_NBLOCK_DIRECT => {
@@ -137,29 +160,38 @@ impl INodeImpl {
             }
             id if id < MAX_NBLOCK_INDIRECT => {
                 let disk_block_id = disk_block_id as u32;
-                self.fs.device.write_block(
-                    self.disk_inode.read().indirect as usize,
-                    ENTRY_SIZE * (id - NDIRECT),
-                    disk_block_id.as_buf(),
-                ).await?;
+                self.fs
+                    .device
+                    .write_block(
+                        self.disk_inode.read().indirect as usize,
+                        ENTRY_SIZE * (id - NDIRECT),
+                        disk_block_id.as_buf(),
+                    )
+                    .await?;
                 Ok(())
             }
             id if id < MAX_NBLOCK_DOUBLE_INDIRECT => {
                 // double indirect
                 let indirect_id = id - MAX_NBLOCK_INDIRECT;
                 let mut indirect_block_id: u32 = 0;
-                self.fs.device.read_block(
-                    self.disk_inode.read().db_indirect as usize,
-                    ENTRY_SIZE * (indirect_id / BLK_NENTRY),
-                    indirect_block_id.as_buf_mut(),
-                ).await?;
+                self.fs
+                    .device
+                    .read_block(
+                        self.disk_inode.read().db_indirect as usize,
+                        ENTRY_SIZE * (indirect_id / BLK_NENTRY),
+                        indirect_block_id.as_buf_mut(),
+                    )
+                    .await?;
                 assert!(indirect_block_id > 0);
                 let disk_block_id = disk_block_id as u32;
-                self.fs.device.write_block(
-                    indirect_block_id as usize,
-                    ENTRY_SIZE * (indirect_id as usize % BLK_NENTRY),
-                    disk_block_id.as_buf(),
-                ).await?;
+                self.fs
+                    .device
+                    .write_block(
+                        indirect_block_id as usize,
+                        ENTRY_SIZE * (indirect_id as usize % BLK_NENTRY),
+                        disk_block_id.as_buf(),
+                    )
+                    .await?;
                 Ok(())
             }
             _ => unimplemented!("triple indirect blocks is not supported"),
@@ -170,13 +202,14 @@ impl INodeImpl {
         for i in 0..self.disk_inode.read().size as usize / DIRENT_SIZE {
             let entry = self.read_direntry(i as usize).await.unwrap();
             if entry.name.as_ref() == name {
-                return Some((entry.id as INodeId, i as usize))
+                return Some((entry.id as INodeId, i as usize));
             }
         }
         None
     }
     async fn get_file_inode_id(&self, name: &str) -> Option<INodeId> {
-        self.get_file_inode_and_entry_id(name).await
+        self.get_file_inode_and_entry_id(name)
+            .await
             .map(|(inode_id, _)| inode_id)
     }
     /// Init dir content. Insert 2 init entries.
@@ -190,19 +223,22 @@ impl INodeImpl {
                 id: self.id as u32,
                 name: Str256::from("."),
             },
-        ).await?;
+        )
+        .await?;
         self.write_direntry(
             1,
             &DiskEntry {
                 id: parent as u32,
                 name: Str256::from(".."),
             },
-        ).await?;
+        )
+        .await?;
         Ok(())
     }
     async fn read_direntry(&self, id: usize) -> vfs::Result<DiskEntry> {
         let mut direntry: DiskEntry = unsafe { MaybeUninit::uninit().assume_init() };
-        self._read_at(DIRENT_SIZE * id, direntry.as_buf_mut()).await?;
+        self._read_at(DIRENT_SIZE * id, direntry.as_buf_mut())
+            .await?;
         Ok(direntry)
     }
     async fn write_direntry(&self, id: usize, direntry: &DiskEntry) -> vfs::Result<()> {
@@ -264,11 +300,14 @@ impl INodeImpl {
                     let indirect_end = (blocks as usize - MAX_NBLOCK_INDIRECT) / BLK_NENTRY + 1;
                     for i in indirect_begin..indirect_end {
                         let indirect = self.fs.alloc_block().expect("no space") as u32;
-                        self.fs.device.write_block(
-                            disk_inode.db_indirect as usize,
-                            ENTRY_SIZE * i,
-                            indirect.as_buf(),
-                        ).await?;
+                        self.fs
+                            .device
+                            .write_block(
+                                disk_inode.db_indirect as usize,
+                                ENTRY_SIZE * i,
+                                indirect.as_buf(),
+                            )
+                            .await?;
                     }
                 }
                 drop(disk_inode);
@@ -311,11 +350,14 @@ impl INodeImpl {
                         (disk_inode.blocks as usize - MAX_NBLOCK_INDIRECT) / BLK_NENTRY + 1;
                     for i in indirect_begin..indirect_end {
                         let mut indirect: u32 = 0;
-                        self.fs.device.read_block(
-                            disk_inode.db_indirect as usize,
-                            ENTRY_SIZE * i,
-                            indirect.as_buf_mut(),
-                        ).await?;
+                        self.fs
+                            .device
+                            .read_block(
+                                disk_inode.db_indirect as usize,
+                                ENTRY_SIZE * i,
+                                indirect.as_buf_mut(),
+                            )
+                            .await?;
                         assert!(indirect > 0);
                         self.fs.free_block(indirect as usize);
                     }
@@ -348,7 +390,7 @@ impl INodeImpl {
     // Note: the _\w*_at method always return begin>size?0:begin<end?0:(min(size,end)-begin) when success
     /// Read/Write content, no matter what type it is
     // async fn _io_at<F>(&self, begin: usize, end: usize, f: F) -> vfs::Result<usize>
-    // where 
+    // where
     // F: FnMut(&Arc<dyn Device>, &BlockRange, usize) -> Box<Pin<dyn Future<Output = vfs::Result<()>>>>,
     // {
     //     let size = self.disk_inode.read().size as usize;
@@ -382,11 +424,18 @@ impl INodeImpl {
         let mut buf_offset = 0usize;
         for mut range in iter {
             range.block = self.get_disk_block_id(range.block).await?;
-            self.fs.device.read_block(range.block, range.begin, &mut buf[buf_offset..buf_offset + range.len()]).await?;
+            self.fs
+                .device
+                .read_block(
+                    range.block,
+                    range.begin,
+                    &mut buf[buf_offset..buf_offset + range.len()],
+                )
+                .await?;
             buf_offset += range.len();
         }
         Ok(buf_offset)
-        // self._io_at(offset, offset + buf.len(), 
+        // self._io_at(offset, offset + buf.len(),
         // Box::new(async move |device: &Arc<dyn Device>, range: &BlockRange, offset: usize| {
         //         device.read_block(range.block, range.begin, &mut buf[offset..offset + range.len()]).await
         //     })
@@ -407,7 +456,14 @@ impl INodeImpl {
         let mut buf_offset = 0usize;
         for mut range in iter {
             range.block = self.get_disk_block_id(range.block).await?;
-            self.fs.device.write_block(range.block, range.begin, &buf[buf_offset..buf_offset + range.len()]).await?;
+            self.fs
+                .device
+                .write_block(
+                    range.block,
+                    range.begin,
+                    &buf[buf_offset..buf_offset + range.len()],
+                )
+                .await?;
             buf_offset += range.len();
         }
         Ok(buf_offset)
@@ -432,7 +488,10 @@ impl INodeImpl {
         let mut buf_offset = 0usize;
         for mut range in iter {
             range.block = self.get_disk_block_id(range.block).await?;
-            self.fs.device.write_block(range.block, range.begin, &ZEROS[..range.len()]).await?;
+            self.fs
+                .device
+                .write_block(range.block, range.begin, &ZEROS[..range.len()])
+                .await?;
             buf_offset += range.len();
         }
         Ok(buf_offset)
@@ -521,13 +580,14 @@ impl vfs::INode for INodeImpl {
             _ => Err(FsError::NotFile),
         }
     }
-    // fn poll(&self) -> vfs::Result<vfs::PollStatus> {
-    //     Ok(vfs::PollStatus {
-    //         read: true,
-    //         write: true,
-    //         error: false,
-    //     })
-    // }
+    
+    fn poll(&self) -> vfs::Result<vfs::PollStatus> {
+        Ok(vfs::PollStatus {
+            read: true,
+            write: true,
+            error: false,
+        })
+    }
 
     /// the size returned here is logical size(entry num for directory), not the disk space used.
     fn metadata(&self) -> vfs::Result<vfs::Metadata> {
@@ -564,22 +624,24 @@ impl vfs::INode for INodeImpl {
         Ok(())
     }
 
-
     async fn flush(&self) {
-        self.sync_all().await.expect("Failed to sync when dropping the SimpleFileSystem Inode");
+        self.sync_all()
+            .await
+            .expect("Failed to sync when dropping the SimpleFileSystem Inode");
         if self.disk_inode.read().nlinks <= 0 {
             self._resize(0).await.unwrap();
             self.disk_inode.write().sync();
             self.fs.free_block(self.id);
         }
     }
-    
+
     async fn sync_all(&self) -> vfs::Result<()> {
         let mut disk_inode = self.disk_inode.write();
         if disk_inode.dirty() {
             self.fs
                 .device
-                .write_block(self.id, 0, disk_inode.as_buf()).await?;
+                .write_block(self.id, 0, disk_inode.as_buf())
+                .await?;
             disk_inode.sync();
         }
         Ok(())
@@ -628,7 +690,8 @@ impl vfs::INode for INodeImpl {
         self.append_direntry(&DiskEntry {
             id: inode.id as u32,
             name: Str256::from(name),
-        }).await?;
+        })
+        .await?;
         inode.nlinks_inc();
         if type_ == vfs::FileType::Dir {
             inode.nlinks_inc(); //for .
@@ -661,7 +724,8 @@ impl vfs::INode for INodeImpl {
         self.append_direntry(&DiskEntry {
             id: child.id as u32,
             name: Str256::from(name),
-        }).await?;
+        })
+        .await?;
         child.nlinks_inc();
         Ok(())
     }
@@ -681,7 +745,8 @@ impl vfs::INode for INodeImpl {
         }
 
         let (inode_id, entry_id) = self
-            .get_file_inode_and_entry_id(name).await
+            .get_file_inode_and_entry_id(name)
+            .await
             .ok_or(FsError::EntryNotFound)?;
         let inode = self.fs.get_inode(inode_id).await;
 
@@ -701,7 +766,12 @@ impl vfs::INode for INodeImpl {
 
         Ok(())
     }
-    async fn move_(&self, old_name: &str, target: &Arc<dyn INode>, new_name: &str) -> vfs::Result<()> {
+    async fn move_(
+        &self,
+        old_name: &str,
+        target: &Arc<dyn INode>,
+        new_name: &str,
+    ) -> vfs::Result<()> {
         let info = self.metadata()?;
         if info.type_ != vfs::FileType::Dir {
             return Err(FsError::NotDir);
@@ -734,7 +804,8 @@ impl vfs::INode for INodeImpl {
         }
 
         let (inode_id, entry_id) = self
-            .get_file_inode_and_entry_id(old_name).await
+            .get_file_inode_and_entry_id(old_name)
+            .await
             .ok_or(FsError::EntryNotFound)?;
         if info.inode == dest_info.inode {
             // rename: in place modify name
@@ -744,13 +815,15 @@ impl vfs::INode for INodeImpl {
                     id: inode_id as u32,
                     name: Str256::from(new_name),
                 },
-            ).await?;
+            )
+            .await?;
         } else {
             // move
             dest.append_direntry(&DiskEntry {
                 id: inode_id as u32,
                 name: Str256::from(new_name),
-            }).await?;
+            })
+            .await?;
             self.remove_direntry(entry_id).await?;
 
             let inode = self.fs.get_inode(inode_id).await;
@@ -766,7 +839,10 @@ impl vfs::INode for INodeImpl {
         if info.type_ != vfs::FileType::Dir {
             return Err(FsError::NotDir);
         }
-        let inode_id = self.get_file_inode_id(name).await.ok_or(FsError::EntryNotFound)?;
+        let inode_id = self
+            .get_file_inode_id(name)
+            .await
+            .ok_or(FsError::EntryNotFound)?;
         Ok(self.fs.get_inode(inode_id).await)
     }
     async fn get_entry(&self, id: usize) -> vfs::Result<String> {
@@ -868,11 +944,13 @@ impl SimpleFileSystem {
         }
         let mut freemap_disk = vec![0u8; BLKSIZE * super_block.freemap_blocks as usize];
         for i in 0..super_block.freemap_blocks as usize {
-            device.read_block(
-                BLKN_FREEMAP + i,
-                0,
-                &mut freemap_disk[i * BLKSIZE..(i + 1) * BLKSIZE],
-            ).await?;
+            device
+                .read_block(
+                    BLKN_FREEMAP + i,
+                    0,
+                    &mut freemap_disk[i * BLKSIZE..(i + 1) * BLKSIZE],
+                )
+                .await?;
         }
         info!("read block over, range {:?}", 0..super_block.freemap_blocks);
         Ok(SimpleFileSystem {
@@ -1047,7 +1125,6 @@ impl SimpleFileSystem {
 
 #[async_trait]
 impl vfs::FileSystem for SimpleFileSystem {
-
     /// Write back super block if dirty
     async fn sync(&self) -> vfs::Result<()> {
         // order is important, see issue #18
@@ -1055,16 +1132,19 @@ impl vfs::FileSystem for SimpleFileSystem {
         let mut super_block = self.super_block.write();
         if super_block.dirty() {
             self.device
-                .write_at(BLKSIZE * BLKN_SUPER, super_block.as_buf()).await?;
+                .write_at(BLKSIZE * BLKN_SUPER, super_block.as_buf())
+                .await?;
             super_block.sync();
         }
         if free_map.dirty() {
             let data = free_map.as_buf();
             for i in 0..super_block.freemap_blocks as usize {
-                self.device.write_at(
-                    BLKSIZE * (BLKN_FREEMAP + i),
-                    &data[i * BLKSIZE..(i + 1) * BLKSIZE],
-                ).await?;
+                self.device
+                    .write_at(
+                        BLKSIZE * (BLKN_FREEMAP + i),
+                        &data[i * BLKSIZE..(i + 1) * BLKSIZE],
+                    )
+                    .await?;
             }
             free_map.sync();
         }
@@ -1110,7 +1190,6 @@ impl Drop for SimpleFileSystem {
         //     .expect("Failed to sync when dropping the SimpleFileSystem");
     }
 }
-
 
 trait BitsetAlloc {
     fn alloc(&mut self) -> Option<usize>;

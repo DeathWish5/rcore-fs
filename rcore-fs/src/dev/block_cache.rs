@@ -67,7 +67,9 @@ impl<T: BlockDevice> BlockCache<T> {
         }
         let victim_id = self.lru.lock().victim();
         let mut victim = self.bufs[victim_id].lock();
-        self.write_back(&mut victim).await.expect("failed to write back");
+        self.write_back(&mut victim)
+            .await
+            .expect("failed to write back");
         victim.status = BufStatus::Unused;
         (victim_id, victim)
     }

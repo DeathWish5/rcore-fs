@@ -27,13 +27,13 @@ impl INode for ZeroINode {
         Ok(buf.len())
     }
 
-    // fn poll(&self) -> Result<PollStatus> {
-    //     Ok(PollStatus {
-    //         read: true,
-    //         write: true,
-    //         error: false,
-    //     })
-    // }
+    fn poll(&self) -> Result<PollStatus> {
+        Ok(PollStatus {
+            read: true,
+            write: true,
+            error: false,
+        })
+    }
 
     fn metadata(&self) -> Result<Metadata> {
         Ok(Metadata {
@@ -75,7 +75,12 @@ impl INode for ZeroINode {
     async fn link(&self, _name: &str, _other: &Arc<dyn INode>) -> Result<()> {
         Err(FsError::NotDir)
     }
-    async fn move_(&self, _old_name: &str, _target: &Arc<dyn INode>, _new_name: &str) -> Result<()> {
+    async fn move_(
+        &self,
+        _old_name: &str,
+        _target: &Arc<dyn INode>,
+        _new_name: &str,
+    ) -> Result<()> {
         Err(FsError::NotDir)
     }
     async fn find(&self, _name: &str) -> Result<Arc<dyn INode>> {

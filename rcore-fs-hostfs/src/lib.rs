@@ -86,9 +86,9 @@ impl INode for HNode {
         Ok(len)
     }
 
-    // fn poll(&self) -> Result<PollStatus> {
-    //     unimplemented!()
-    // }
+    fn poll(&self) -> Result<PollStatus> {
+        unimplemented!()
+    }
 
     fn metadata(&self) -> Result<Metadata> {
         let metadata = self.path.metadata()?;

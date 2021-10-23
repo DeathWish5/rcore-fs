@@ -10,11 +10,13 @@ use alloc::{
     string::String,
     sync::{Arc, Weak},
 };
-use async_trait::async_trait;
 use async_recursion::async_recursion;
+use async_trait::async_trait;
 use core::any::Any;
 use rcore_fs::vfs::*;
 use spin::RwLock;
+use core::pin::Pin;
+use core::future::Future;
 
 
 #[cfg(test)]
@@ -183,7 +185,8 @@ impl MNode {
                     self_ref: Weak::default(),
                 }
                 .wrap()
-                .overlaid_inode().await)
+                .overlaid_inode()
+                .await)
             }
         }
     }
@@ -243,16 +246,16 @@ impl INode for MNode {
         self.inode.write_at(offset, buf).await
     }
 
-    // fn poll(&self) -> Result<PollStatus> {
-    //     self.inode.poll()
-    // }
+    fn poll(&self) -> Result<PollStatus> {
+        self.inode.poll()
+    }
 
-    /// Poll the events, return a bitmap of events, async version.
-    // fn async_poll<'a>(
-    //     &'a self,
-    // ) -> Pin<Box<dyn Future<Output = Result<PollStatus>> + Send + Sync + 'a>> {
-    //     self.inode.async_poll()
-    // }
+    // Poll the events, return a bitmap of events, async version.
+    fn async_poll<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<PollStatus>> + Send + Sync + 'a>> {
+        self.inode.async_poll()
+    }
 
     fn metadata(&self) -> Result<Metadata> {
         self.inode.metadata()

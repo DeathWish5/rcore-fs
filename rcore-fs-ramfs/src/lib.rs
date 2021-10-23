@@ -4,11 +4,11 @@ extern crate alloc;
 extern crate log;
 
 use alloc::{
+    boxed::Box,
     collections::BTreeMap,
     string::{String, ToString},
     sync::{Arc, Weak},
     vec::Vec,
-    boxed::Box,
 };
 use async_trait::async_trait;
 use core::any::Any;
@@ -18,7 +18,6 @@ use spin::{RwLock, RwLockWriteGuard};
 pub struct RamFS {
     root: Arc<LockedINode>,
 }
-
 
 #[async_trait]
 impl FileSystem for RamFS {
@@ -126,17 +125,17 @@ impl INode for LockedINode {
         Ok(buf.len())
     }
 
-    // fn poll(&self) -> Result<PollStatus> {
-    //     let file = self.0.read();
-    //     if file.extra.type_ == FileType::Dir {
-    //         return Err(FsError::IsDir);
-    //     }
-    //     Ok(PollStatus {
-    //         read: true,
-    //         write: true,
-    //         error: false,
-    //     })
-    // }
+    fn poll(&self) -> Result<PollStatus> {
+        let file = self.0.read();
+        if file.extra.type_ == FileType::Dir {
+            return Err(FsError::IsDir);
+        }
+        Ok(PollStatus {
+            read: true,
+            write: true,
+            error: false,
+        })
+    }
 
     fn metadata(&self) -> Result<Metadata> {
         let file = self.0.read();
