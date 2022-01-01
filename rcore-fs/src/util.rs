@@ -1,3 +1,4 @@
+#[derive(Debug, Copy, Clone)]
 /// Given a range and iterate sub-range for each block
 pub struct BlockIter {
     pub begin: usize,

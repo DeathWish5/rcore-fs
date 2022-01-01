@@ -39,7 +39,7 @@ mod tests;
 trait DeviceExt: Device {
     async fn read_block(&self, id: BlockId, offset: usize, buf: &mut [u8]) -> vfs::Result<()> {
         debug_assert!(offset + buf.len() <= BLKSIZE);
-        // info!("read id {} offset {} buf.len {}", id, offset, buf.len());
+        info!("read id {} offset {} buf.len {}", id, offset, buf.len());
         match self.read_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
             Ok(len) => panic!(
@@ -54,7 +54,7 @@ trait DeviceExt: Device {
     }
     async fn write_block(&self, id: BlockId, offset: usize, buf: &[u8]) -> vfs::Result<()> {
         debug_assert!(offset + buf.len() <= BLKSIZE);
-        // info!("write id {} offset {} buf.len {}", id, offset, buf.len());
+        info!("write id {} offset {} buf.len {}", id, offset, buf.len());
         match self.write_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
             Ok(len) => panic!(
@@ -679,10 +679,10 @@ impl vfs::INode for INodeImpl {
 
         // Create new INode
         let inode = match type_ {
-            vfs::FileType::File => self.fs.new_inode_file()?,
-            vfs::FileType::SymLink => self.fs.new_inode_symlink()?,
+            vfs::FileType::File => self.fs.new_inode_file().await?,
+            vfs::FileType::SymLink => self.fs.new_inode_symlink().await?,
             vfs::FileType::Dir => self.fs.new_inode_dir(self.id).await?,
-            vfs::FileType::CharDevice => self.fs.new_inode_chardevice(data)?,
+            vfs::FileType::CharDevice => self.fs.new_inode_chardevice(data).await?,
             _ => return Err(vfs::FsError::InvalidParam),
         };
 
@@ -692,6 +692,7 @@ impl vfs::INode for INodeImpl {
             name: Str256::from(name),
         })
         .await?;
+
         inode.nlinks_inc();
         if type_ == vfs::FileType::Dir {
             inode.nlinks_inc(); //for .
@@ -924,7 +925,7 @@ pub struct SimpleFileSystem {
     /// blocks in use are mared 0
     free_map: RwLock<Dirty<BitVec<Lsb0, u8>>>,
     /// inode list
-    inodes: RwLock<BTreeMap<INodeId, Weak<INodeImpl>>>,
+    inodes: RwLock<BTreeMap<INodeId, Arc<INodeImpl>>>,
     /// device
     device: Arc<dyn Device>,
     /// Pointer to self, used by INodes
@@ -996,7 +997,7 @@ impl SimpleFileSystem {
         .wrap();
 
         // Init root INode
-        let root = sfs._new_inode(BLKN_ROOT, Dirty::new_dirty(DiskINode::new_dir()));
+        let root = sfs._new_inode(BLKN_ROOT, Dirty::new_dirty(DiskINode::new_dir())).await;
         root.init_direntry(BLKN_ROOT).await?;
         root.nlinks_inc(); //for .
         root.nlinks_inc(); //for ..(root's parent is itself)
@@ -1053,7 +1054,7 @@ impl SimpleFileSystem {
 
     /// Create a new INode struct, then insert it to self.inodes
     /// Private used for load or create INode
-    fn _new_inode(&self, id: INodeId, disk_inode: Dirty<DiskINode>) -> Arc<INodeImpl> {
+    async fn _new_inode(&self, id: INodeId, disk_inode: Dirty<DiskINode>) -> Arc<INodeImpl> {
         let device_inode_id = disk_inode.device_inode_id;
         let inode = Arc::new(INodeImpl {
             id,
@@ -1061,7 +1062,11 @@ impl SimpleFileSystem {
             fs: self.self_ptr.upgrade().unwrap(),
             device_inode_id,
         });
-        self.inodes.write().insert(id, Arc::downgrade(&inode));
+        self.inodes.write().insert(id, inode.clone());
+        if self.inodes.read().len() > 100 {
+            info!("too many inodes, flush weak inodes");
+            self.flush_weak_inodes().await;
+        }
         inode
     }
 
@@ -1072,52 +1077,50 @@ impl SimpleFileSystem {
 
         // In the BTreeSet and not weak.
         if let Some(inode) = self.inodes.read().get(&id) {
-            if let Some(inode) = inode.upgrade() {
-                return inode;
-            }
+            return inode.clone();
         }
         // Load if not in set, or is weak ref.
         let disk_inode = Dirty::new(self.device.load_struct::<DiskINode>(id).await.unwrap());
-        self._new_inode(id, disk_inode)
+        self._new_inode(id, disk_inode).await
     }
     /// Create a new INode file
-    fn new_inode_file(&self) -> vfs::Result<Arc<INodeImpl>> {
+    async fn new_inode_file(&self) -> vfs::Result<Arc<INodeImpl>> {
         let id = self.alloc_block().ok_or(FsError::NoDeviceSpace)?;
         let disk_inode = Dirty::new_dirty(DiskINode::new_file());
-        Ok(self._new_inode(id, disk_inode))
+        Ok(self._new_inode(id, disk_inode).await)
     }
     /// Create a new INode symlink
-    fn new_inode_symlink(&self) -> vfs::Result<Arc<INodeImpl>> {
+    async fn new_inode_symlink(&self) -> vfs::Result<Arc<INodeImpl>> {
         let id = self.alloc_block().ok_or(FsError::NoDeviceSpace)?;
         let disk_inode = Dirty::new_dirty(DiskINode::new_symlink());
-        Ok(self._new_inode(id, disk_inode))
+        Ok(self._new_inode(id, disk_inode).await)
     }
     /// Create a new INode dir
     async fn new_inode_dir(&self, parent: INodeId) -> vfs::Result<Arc<INodeImpl>> {
         let id = self.alloc_block().ok_or(FsError::NoDeviceSpace)?;
         let disk_inode = Dirty::new_dirty(DiskINode::new_dir());
-        let inode = self._new_inode(id, disk_inode);
+        let inode = self._new_inode(id, disk_inode).await;
         inode.init_direntry(parent).await?;
         Ok(inode)
     }
     /// Create a new INode chardevice
-    pub fn new_inode_chardevice(&self, device_inode_id: usize) -> vfs::Result<Arc<INodeImpl>> {
+    pub async fn new_inode_chardevice(&self, device_inode_id: usize) -> vfs::Result<Arc<INodeImpl>> {
         let id = self.alloc_block().ok_or(FsError::NoDeviceSpace)?;
         let disk_inode = Dirty::new_dirty(DiskINode::new_chardevice(device_inode_id));
-        let new_inode = self._new_inode(id, disk_inode);
+        let new_inode = self._new_inode(id, disk_inode).await;
         Ok(new_inode)
     }
     async fn flush_weak_inodes(&self) {
         let mut inodes = self.inodes.write();
         let remove_ids: Vec<_> = inodes
             .iter()
-            .filter(|(_, inode)| inode.upgrade().is_none())
+            .filter(|(_, inode)| Arc::strong_count(&inode) == 1)
             .map(|(&id, _)| id)
             .collect();
         for id in remove_ids.iter() {
-            if let Some(inode) = inodes.remove(&id).map_or(None, |n| n.upgrade()) {
+            if let Some(inode) = inodes.remove(&id) {
                 inode.flush().await;
-                // drop inode
+                // Inode will be droped here.
             }
         }
     }
@@ -1150,9 +1153,7 @@ impl vfs::FileSystem for SimpleFileSystem {
         }
         self.flush_weak_inodes().await;
         for inode in self.inodes.read().values() {
-            if let Some(inode) = inode.upgrade() {
-                inode.sync_all().await?;
-            }
+            inode.sync_all().await?;
         }
         self.device.sync().await?;
         Ok(())
@@ -1183,6 +1184,7 @@ impl vfs::FileSystem for SimpleFileSystem {
 impl Drop for SimpleFileSystem {
     /// Auto sync when drop
     fn drop(&mut self) {
+        panic!("SFS should not drop");
         // DO NOTHING. Should call flush in advance.
 
         // unimplemented!();
