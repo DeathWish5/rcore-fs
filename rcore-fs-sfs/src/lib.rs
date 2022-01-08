@@ -39,7 +39,7 @@ mod tests;
 trait DeviceExt: Device {
     async fn read_block(&self, id: BlockId, offset: usize, buf: &mut [u8]) -> vfs::Result<()> {
         debug_assert!(offset + buf.len() <= BLKSIZE);
-        info!("read id {} offset {} buf.len {}", id, offset, buf.len());
+        trace!("read id {} offset {} buf.len {}", id, offset, buf.len());
         match self.read_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
             Ok(len) => panic!(
@@ -54,7 +54,7 @@ trait DeviceExt: Device {
     }
     async fn write_block(&self, id: BlockId, offset: usize, buf: &[u8]) -> vfs::Result<()> {
         debug_assert!(offset + buf.len() <= BLKSIZE);
-        info!("write id {} offset {} buf.len {}", id, offset, buf.len());
+        trace!("write id {} offset {} buf.len {}", id, offset, buf.len());
         match self.write_at(id * BLKSIZE + offset, buf).await {
             Ok(len) if len == buf.len() => Ok(()),
             Ok(len) => panic!(
@@ -937,9 +937,7 @@ pub struct SimpleFileSystem {
 impl SimpleFileSystem {
     /// Load SFS from device
     pub async fn open(device: Arc<dyn Device>) -> vfs::Result<Arc<Self>> {
-        info!("load super block..");
         let super_block = device.load_struct::<SuperBlock>(BLKN_SUPER).await?;
-        info!("load super block over");
         if !super_block.check() {
             return Err(FsError::WrongFs);
         }
@@ -952,6 +950,7 @@ impl SimpleFileSystem {
                     &mut freemap_disk[i * BLKSIZE..(i + 1) * BLKSIZE],
                 )
                 .await?;
+            debug!("BLK {} load over", BLKN_FREEMAP + i);
         }
         info!("read block over, range {:?}", 0..super_block.freemap_blocks);
         Ok(SimpleFileSystem {
